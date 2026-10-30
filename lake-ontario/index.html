@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Pinging the bottom of Lake Ontario</title>
+    <meta name="description" content="Trying to send a packet through the cable at the bottom of Lake Ontario, using traceroute and a lot of curiosity.">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:100,300,400" type="text/css">
+    <style type="text/css">
+      * { font-family: Lato, sans-serif; font-size: 18px; font-weight: 300; }
+      body { margin: 0; color: #111; background: #fff; }
+      .content { max-width: 680px; padding: 5% 7% 60px 7%; line-height: 1.6; }
+      .back { font-size: 15px; }
+      h1 { font-size: 40px; font-weight: 100; line-height: 1.2; margin: 24px 0 4px 0; }
+      .date { font-size: 15px; color: #777; margin-bottom: 28px; }
+      p { margin: 0 0 20px 0; }
+      pre { background: #f5f5f5; padding: 14px 16px; overflow-x: auto; margin: 0 0 22px 0; border-radius: 4px; }
+      pre, code, pre * { font-family: Menlo, Consolas, monospace; font-size: clamp(11px, 2.2vw, 13.5px); font-weight: 400; line-height: 1.45; }
+      code { background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
+      pre .c { color: #888; }
+      a { text-decoration: none; color: blue; }
+      @media only screen and (max-width: 500px) {
+        .content { padding: 10% 5% 40px 5%; }
+        h1 { font-size: 32px; }
+        pre { white-space: pre-wrap; word-break: break-all; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <a class="back" href="/">&larr; Aaron Morais</a>
+      <h1>Pinging the bottom of Lake Ontario</h1>
+      <div class="date">October 29, 2026</div>
+
+      <p>
+        I was browsing <a href="https://www.submarinecablemap.com/">submarinecablemap.com</a> and noticed a short line
+        running straight across Lake Ontario. It's called
+        <a href="https://www.submarinenetworks.com/en/systems/north-america/crosslake-fibre">Crosslake Fibre</a>.
+        It goes from Toronto to Buffalo, and 58 km of it sits on the bottom of the lake. The Toronto end is a few
+        blocks from my apartment, and I wanted to send a packet through it.
+      </p>
+
+      <p>
+        That's harder than it sounds. A cable like this is a pipe, not a network. Crosslake leases the
+        strands to other carriers, and those carriers don't label which cable your packet rides. So the only clue is
+        timing. Light in fibre covers about 200 km per millisecond. The lake route is 131 km, so a round trip should
+        take about 1.3 ms. Anything going around the lake has to be slower.
+      </p>
+
+      <p>My first try, from my couch:</p>
+<pre>
+$ traceroute -q 2 -w 1 -m 15 www.colocrossing.com   <span class="c"># a host in Buffalo</span>
+ ...
+ 9  toro-b5-link.ip.twelve99.net (62.115.192.22)  6.964 ms
+10  chi-bb2-link.ip.twelve99.net (62.115.136.246)  38.615 ms
+11  ewr-bb2-link.ip.twelve99.net (62.115.132.134)  38.849 ms
+12  ewr-b8-link.ip.twelve99.net (62.115.141.203)  35.785 ms
+13  nyk-bb5-link.ip.twelve99.net (62.115.139.146)  29.199 ms
+14  buf-b3-link.ip.twelve99.net (62.115.118.123)  38.338 ms
+</pre>
+      <p>
+        My ping went to Chicago, then Newark, then New York, and only then Buffalo. A couple thousand kilometres to
+        reach a city 100 km away.
+      </p>
+
+      <p>
+        So I tried from other people's servers. <a href="https://globalping.io">Globalping</a> let me ping Buffalo from
+        23 networks in Toronto.
+      </p>
+      <p>
+        Cogent was near the top, at about 3 ms, which was exciting until I read the router names:
+      </p>
+<pre>
+<span class="c"># a ColoCrossing router in Buffalo, from 23 Toronto networks:</span>
+$ globalping ping 107.175.155.25 from Toronto+AS53356,...
+ 2.999 ms  ParadoxNetworks
+ 3.238 ms  Amanah Tech
+ 3.340 ms  Free Range Cloud Hosting
+ ...
+22.472 ms  Bell
+
+$ globalping traceroute 107.175.155.25 from Toronto+AS53356
+ 4  be7312.ccr32.yyz02.atlas.cogentco.com  0.819 ms
+ 5  be8150.rcr21.yhm01.atlas.cogentco.com  2.287 ms
+ 6  be8148.rcr71.buf03.atlas.cogentco.com  3.268 ms
+</pre>
+      <p>
+        Routers are often named after airport codes, and <code>yhm</code> is Hamilton. Cogent goes around the lake,
+        not under it.
+      </p>
+
+      <p>
+        Then I tried working backwards. The cable comes ashore at 350 Main St in Buffalo, so I looked up who else is
+        in that building. One name was also in the Toronto buildings on the other end: Hurricane Electric. Every trace
+        to their Buffalo router went from Toronto to Buffalo in a single hop:
+      </p>
+<pre>
+<span class="c"># HE's router list, lg.he.net:</span>
+core1.buf1.he.net        H5 BUF2 / 365 Data Centers BU1
+
+<span class="c"># from a server in Toronto:</span>
+$ globalping mtr core1.buf1.he.net from Toronto+AS931
+7  be2.core3.tor2.he.net  3.477 ms
+8  core1.buf1.he.net      2.736 ms
+
+<span class="c"># from my couch:</span>
+$ traceroute -n -q 1 -w 1 core1.buf1.he.net
+1  192.168.4.1            3.840 ms   <span class="c"># my router</span>
+2  192.168.2.1            6.234 ms   <span class="c"># Bell's router</span>
+
+$ ping -c 10 core1.buf1.he.net
+round-trip min/avg/max/stddev = 8.420/11.761/21.540/3.575 ms
+</pre>
+      <p>
+        About 6 ms of that is my Wi-Fi, which is a little embarrassing. The rest is about 2 ms: Toronto to Buffalo
+        and back. Light in fibre covers about 400 km in that time, roughly what you'd need to go under the lake and
+        return, plus some router overhead.
+      </p>
+
+      <p>
+        So a ping from my couch went under Lake Ontario and back in about 2 ms. Probably.
+      </p>
+
+      <p>
+        I can't prove it, though. Hurricane Electric could have a short land route through Niagara that happens to be
+        just as fast. If you know what their Toronto to Buffalo link actually runs on, please tell me.
+      </p>
+    </div>
+  </body>
+</html>
